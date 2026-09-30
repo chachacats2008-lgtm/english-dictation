@@ -68,7 +68,8 @@ gen_cert.bat     生成 iPhone 录音用的 HTTPS 证书
 - 发音评测 [Vosk](https://alphacephei.com/vosk/) 离线识别（Apache-2.0），词级编辑距离比对评分
 - 扫描版 PDF 识别 [RapidOCR](https://github.com/RapidAI/RapidOCR)（Apache-2.0）
 - 部分例句来自 [Tatoeba](https://tatoeba.org/) 句库（CC-BY 2.0 FR），已随词库数据分发，在此致谢
-- 60 篇中考短文为本项目原创，随库分发，可自由使用
+- 60 篇中考短文为本项目专门编写（AI 辅助创作的原创内容，未摘自任何出版物），
+  随库分发；如认为某篇与您的作品雷同，请提 Issue，我们会核实替换
 
 ## ⚠️ 使用说明
 
