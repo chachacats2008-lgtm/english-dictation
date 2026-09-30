@@ -54,6 +54,8 @@ server.py        服务端（内置 HTTP 服务 / TTS / 评测 / OCR）
 index.html       主页面（单文件应用）
 review.html      导入校对页
 data/            词库数据（JSON，备份这个目录即可）
+                 其中 demo_essay.json 为演示数据（某教材短文节选两句，
+                 仅展示“双语文章逐句导入”的效果）
 setup_models.py  模型下载脚本（模型不进 Git，首次运行一次）
 gen_cert.bat     生成 iPhone 录音用的 HTTPS 证书
 ```
@@ -71,7 +73,8 @@ gen_cert.bat     生成 iPhone 录音用的 HTTPS 证书
 ## ⚠️ 使用说明
 
 - 本项目完全本地运行（edge-tts 在线音色为可选备用），不上传任何数据，录音只保存在本机 `recordings/`
-- 请勿将受版权保护的图书内容（词书扫描件、配套词库等）导入后公开分发
+- 请勿将受版权保护的图书内容（词书扫描件、配套词库等）导入后公开分发；
+  仓库自带的 `data/demo_essay.json` 仅为格式演示，节选自市面教材两句并已改名
 
 ## License
 

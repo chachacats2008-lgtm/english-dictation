@@ -1,0 +1,22 @@
+{
+ "id": "demo_essay",
+ "kind": "sent",
+ "title": "示例短文（演示数据·节选两句）",
+ "created": 4,
+ "items": [
+  {
+   "word": "",
+   "zh": "",
+   "sent": "Once upon a time, there was a little boy.",
+   "sentZh": "从前，有一个小男孩。",
+   "words": []
+  },
+  {
+   "word": "",
+   "zh": "",
+   "sent": "His parents were poor farmers.",
+   "sentZh": "他的父母都是贫穷的农民。",
+   "words": []
+  }
+ ]
+}
