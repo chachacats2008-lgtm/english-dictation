@@ -1,0 +1,19 @@
+# 模型文件(用 setup_models.py 下载, 不进 Git)
+models/
+# 运行时产物
+tts-cache/
+recordings/
+pdf-tmp/
+dist/
+server.log
+*.log
+# 用户自建词库(不公开)
+data/l[0-9]*.json
+data/queue.json
+# 证书(首次运行生成)
+certs/
+# 系统杂项
+__pycache__/
+*.pyc
+.DS_Store
+tools/

@@ -1,0 +1,10 @@
+kokoro-onnx>=0.9
+edge-tts
+pymupdf
+rapidocr-onnxruntime
+pillow
+audiotsm
+imageio-ffmpeg
+opencc-python-reimplemented
+vosk
+numpy

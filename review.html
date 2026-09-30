@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>校对 · 单句对照</title>
+<style>
+:root{ --line:#e2e8f0; --blue:#2563eb; --bg:#f6f8fb; }
+*{ box-sizing:border-box; }
+body{ margin:0; font-family:"Microsoft YaHei",system-ui,sans-serif; background:var(--bg); color:#111827;
+      overflow-x:hidden; }
+[hidden]{ display:none !important; }
+.bar{ position:sticky; top:0; z-index:9; background:#fff; border-bottom:1.5px solid var(--line);
+      padding:10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.bar .title-input{ font-size:16px; font-weight:700; border:1.5px solid var(--line); border-radius:10px;
+      padding:8px 12px; width:min(340px, 60vw); }
+.bar .grow{ flex:1; }
+.stat{ font-size:13px; color:#6b7280; }
+.stat b{ color:var(--blue); }
+button{ font-family:inherit; cursor:pointer; }
+.btn{ border:1.5px solid var(--line); background:#fff; border-radius:10px; padding:8px 14px; font-size:14px; }
+.btn:hover{ border-color:var(--blue); color:var(--blue); }
+.btn.primary{ background:var(--blue); color:#fff; border-color:var(--blue); font-weight:700; }
+.btn.primary:disabled{ opacity:.55; cursor:default; }
+.wrap{ max-width:1100px; margin:0 auto; padding:18px 14px 90px; }
+.howto{ background:#eff6ff; border-radius:12px; padding:10px 14px; font-size:13px; color:#1e40af; margin-bottom:14px; }
+table{ width:100%; border-collapse:collapse; background:#fff; border-radius:14px; overflow:hidden;
+       box-shadow:0 1px 4px rgba(0,0,0,.06); }
+th{ background:#f1f5f9; font-size:12.5px; color:#475569; padding:9px 8px; text-align:left;
+    border-bottom:1.5px solid var(--line); }
+td{ border-top:1px solid var(--line); padding:8px; vertical-align:top; }
+td.num{ color:#94a3b8; font-size:12px; width:34px; text-align:right; white-space:nowrap; }
+textarea{ width:100%; border:1.5px solid transparent; border-radius:8px; padding:6px 8px; font-size:14px;
+          font-family:inherit; resize:none; background:transparent; line-height:1.5; overflow:hidden; min-height:34px; }
+textarea:focus{ outline:none; border-color:var(--blue); background:#fff; }
+td.en textarea{ font-family:Georgia,"Times New Roman",serif; font-size:15px; }
+td.zh textarea{ color:#374151; }
+tr.checked td{ background:#f0fdf4; }
+tr.checked td.num{ color:#16a34a; }
+.chk{ width:22px; height:22px; cursor:pointer; accent-color:#16a34a; }
+.mini.recing{ background:#dc2626; color:#fff; animation:recpulse 1s infinite; }
+@keyframes recpulse{50%{opacity:.55}}
+.pronout{ margin-top:4px; font-size:12.5px; line-height:1.6; }
+.mini{ border:none; background:transparent; font-size:15px; padding:4px 6px; border-radius:8px; color:#64748b; }
+.mini:hover{ background:#f1f5f9; }
+.mini.del:hover{ background:#fee2e2; color:#dc2626; }
+.act{ width:78px; white-space:nowrap; }
+#emptyBox{ text-align:center; padding:60px 20px; color:#94a3b8; font-size:15px; line-height:2; }
+.savebar{ position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1.5px solid var(--line);
+          padding:10px 16px; display:flex; gap:10px; align-items:center; justify-content:flex-end;
+          box-shadow:0 -2px 10px rgba(0,0,0,.05); }
+.toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); background:#111827; color:#fff;
+         border-radius:10px; padding:9px 18px; font-size:14px; z-index:99; opacity:0; transition:opacity .25s; }
+.toast.show{ opacity:1; }
+@media (max-width:640px){
+  /* 窄屏: 上下堆叠的卡片布局, 句子占满整行宽度 */
+  table{ box-shadow:none; background:transparent; }
+  thead{ display:none; }
+  #rows tr{ display:block; background:#fff; border-radius:12px; margin:0 0 10px;
+            box-shadow:0 1px 4px rgba(0,0,0,.08); padding:8px 10px; }
+  td{ display:block; border-top:none !important; padding:2px 0; width:auto !important; }
+  td.num{ display:none; }
+  td textarea{ font-size:15px; }
+  td.en{ border-top:1px dashed #e2e8f0 !important; margin-top:4px; padding-top:4px; }
+  td.act{ display:flex; justify-content:flex-end; gap:4px; }
+  .chk{ width:24px; height:24px; }
+  .howto{ font-size:12px; }
+  .bar{ padding:8px 10px; gap:6px; }
+  .bar .title-input{ width:min(300px, 92vw); }
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <a class="btn" href="/" style="text-decoration:none">← 主页面</a>
+  <input class="title-input" id="edTitle" placeholder="词库名称">
+  <select id="kindSel">
+    <option value="sent">句子库（单句 + 中文）</option>
+    <option value="vocab">单词库（词 + 释义 + 例句）</option>
+  </select>
+  <span class="stat" id="stat"></span>
+  <span class="grow"></span>
+  <button class="btn" id="btnOnlyUnchecked">☑ 只看未核对</button>
+  <button class="btn" id="btnZhFill">📥 整段填中文</button>
+  <button class="btn" id="btnReloadData">🔄 载入最新解析</button>
+  <button class="btn" id="btnCheckAll">全部标记已核对</button>
+  <button class="btn" id="btnAdd">＋ 添加一行</button>
+</div>
+<div class="wrap">
+  <div class="howto" id="howto">逐条核对：<b>点左侧方框打 ✓ 表示已核对</b>；文字可直接点击修改；▶ 可试听该句（本地 AI 语音，首次生成稍慢）；核对完拉到最下方点「保存入库」。</div>
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th class="n">#</th><th style="width:26px"></th>
+        <th class="en-h" id="hEn">English / 句子</th>
+        <th class="zh-h" id="hZh">中文</th>
+        <th class="act"></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="emptyBox" hidden>
+    没有待校对的内容<br>
+    请回到主页面：上传 PDF → 提取/识别 → 点「🤖 智能解析」会自动打开本页
+  </div>
+</div>
+<div class="savebar">
+  <span class="stat" id="stat2"></span>
+  <span class="grow"></span>
+  <button class="btn" id="btnDelChecked">🗑 删除空行</button>
+  <button class="btn primary" id="btnSave">💾 保存入库</button>
+</div>
+<div class="toast" id="toast"></div>
+<div id="zhModal" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:16px;width:min(560px,92vw)">
+    <div style="font-weight:700;margin-bottom:4px">📥 整段填中文</div>
+    <div style="font-size:12.5px;color:#6b7280;margin-bottom:10px">把整篇中文译文粘贴到下面（按句号拆分、按顺序自动填入空白的中文栏；已有的中文不会被覆盖）。英文句数和中文句数不一致时会提示你手动对齐个别行。</div>
+    <textarea id="zhBulk" style="width:100%;height:180px;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;font-size:14px;font-family:inherit;box-sizing:border-box" placeholder="把整篇中文译文粘贴到这里…"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn" id="zhCancel">取消</button>
+      <button class="btn primary" id="zhFill">按句填入</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var DATA_KEY = 'edict3.review.v1';
+var LSK = 'edict3.settings.v1';
+var data = null;           // {title, kind, items:[{word,zh,sent,sentZh,words,ok}]}
+var onlyUnchecked = false;
+
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2600);
+}
+
+function loadSettings(){
+  try{ return JSON.parse(localStorage.getItem(LSK) || '{}'); }catch(e){ return {}; }
+}
+var settings = loadSettings();
+if(!settings.voice) settings.voice = 'kokoro:af_heart';
+if(!settings.speed) settings.speed = 0.8;
+
+/* ---------- 数据 ---------- */
+function loadData(){
+  try{ data = JSON.parse(localStorage.getItem(DATA_KEY) || 'null'); }catch(e){ data = null; }
+  if(!data || !data.items){ data = null; return; }
+  document.getElementById('edTitle').value = data.title || '';
+  document.getElementById('kindSel').value = data.kind || 'sent';
+  data.items.forEach(function(it){ it.ok = !!it.ok; });
+}
+function persistData(){
+  try{ localStorage.setItem(DATA_KEY, JSON.stringify(data)); }catch(e){ toast('内容过大，自动保存失败'); }
+}
+
+/* ---------- 渲染 ---------- */
+function visibleItems(){
+  if(!data) return [];
+  return data.items.filter(function(it){ return !onlyUnchecked || !it.ok; });
+}
+function grow(ta){
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(34, ta.scrollHeight) + 'px';
+}
+function ta(value, cls, oninput){
+  var t = document.createElement('textarea');
+  t.value = value || ''; t.className = cls; t.rows = 1;
+  t.addEventListener('input', function(){ grow(this); oninput(this.value); });
+  setTimeout(function(){ grow(t); }, 0);
+  return t;
+}
+function render(){
+  var tb = document.getElementById('rows');
+  tb.innerHTML = '';
+  var kind = document.getElementById('kindSel').value;
+  document.getElementById('hEn').textContent = kind === 'vocab' ? '单词 / 释义' : 'English / 句子';
+  document.getElementById('hZh').textContent = kind === 'vocab' ? '例句 / 例句中文' : '中文';
+  var vis = visibleItems();
+  vis.forEach(function(it){
+    var tr = document.createElement('tr');
+    if(it.ok) tr.className = 'checked';
+    var tdN = document.createElement('td'); tdN.className = 'num';
+    tdN.textContent = (data.items.indexOf(it) + 1) + (it.ok ? ' ✓' : '');
+    var tdC = document.createElement('td');
+    var chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className = 'chk'; chk.checked = it.ok;
+    chk.title = '标记为已核对';
+    chk.addEventListener('change', function(){ it.ok = this.checked; persistData(); render(); });
+    tdC.appendChild(chk);
+    var tdE = document.createElement('td'); tdE.className = 'en';
+    var tdZ = document.createElement('td'); tdZ.className = 'zh';
+    if(kind === 'vocab'){
+      tdE.appendChild(ta(it.word, 'en', function(v){ it.word = v; persistData(); }));
+      tdE.appendChild(ta(it.zh, 'zh', function(v){ it.zh = v; persistData(); }));
+      tdZ.appendChild(ta(it.sent, 'en', function(v){ it.sent = v; persistData(); }));
+      tdZ.appendChild(ta(it.sentZh, 'zh', function(v){ it.sentZh = v; persistData(); }));
+    }else{
+      tdE.appendChild(ta(it.sent, 'en', function(v){ it.sent = v; persistData(); }));
+      tdZ.appendChild(ta(it.sentZh, 'zh', function(v){ it.sentZh = v; persistData(); }));
+    }
+    var tdA = document.createElement('td'); tdA.className = 'act';
+    var play = document.createElement('button');
+    play.className = 'mini'; play.textContent = '▶'; play.title = '试听';
+    play.addEventListener('click', function(){
+      var text = (kind === 'vocab' ? (it.sent || it.word) : it.sent) || '';
+      if(!text){ toast('这一行没有可朗读的内容'); return; }
+      play.disabled = true; play.textContent = '…';
+      getAudio(text).then(function(buf){ playBuf(buf); })
+        .catch(function(){ toast('语音生成失败'); })
+        .finally(function(){ play.disabled = false; play.textContent = '▶'; });
+    });
+    var del = document.createElement('button');
+    del.className = 'mini del'; del.textContent = '✕'; del.title = '删除本行';
+    del.addEventListener('click', function(){
+      var i = data.items.indexOf(it);
+      if(i >= 0) data.items.splice(i, 1);
+      persistData(); render();
+    });
+    var mic = document.createElement('button');
+    mic.className = 'mini'; mic.textContent = '🎤'; mic.title = '跟读评测';
+    var pout = document.createElement('div');
+    pout.className = 'pronout';
+    mic.addEventListener('click', function(){
+      var t = (kind === 'vocab' ? (it.sent || it.word) : it.sent) || '';
+      if(!t){ toast('这一行没有可读内容'); return; }
+      getAudio(t).then(function(url){
+        var a = new Audio(url);
+        var done = function(sec){
+          var est = t.split(/\s+/).length * 0.6 + 1.5;
+          var dur = (sec && sec > 0.5) ? sec : est;
+          pronToggle(mic, t, pout, Math.ceil(dur * 3));
+        };
+        a.onloadedmetadata = function(){ done(a.duration); };
+        a.onerror = function(){ done(0); };
+        a.load();
+        setTimeout(function(){ if(!a.duration) done(0); }, 1200);
+      }).catch(function(){ pronToggle(mic, t, pout, 10); });
+    });
+    tdA.appendChild(play); tdA.appendChild(mic); tdA.appendChild(del);
+    tdZ.appendChild(pout);
+    tr.appendChild(tdN); tr.appendChild(tdC); tr.appendChild(tdE); tr.appendChild(tdZ); tr.appendChild(tdA);
+    tb.appendChild(tr);
+  });
+  document.getElementById('tbl').hidden = !data || !vis.length;
+  document.getElementById('emptyBox').hidden = !!data && !!vis.length;
+  var done = data ? data.items.filter(function(i){ return i.ok; }).length : 0;
+  var total = data ? data.items.length : 0;
+  document.getElementById('stat').innerHTML = '已核对 <b>' + done + '</b> / ' + total + ' 条';
+  document.getElementById('stat2').textContent = total ? ('已核对 ' + done + ' / ' + total) : '';
+  document.getElementById('btnSave').disabled = !total;
+}
+
+/* ---------- 语音: 原生 <audio> 播放 ---------- */
+var audioEl = new Audio();
+audioEl.preload = 'auto';
+var AC = null, audioPrimed = false;
+function ctx(){
+  if(!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  if(AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function getAudio(text){
+  var s = settings || {};
+  var url = '/api/tts?voice=' + encodeURIComponent(s.voice || 'kokoro:af_heart') +
+            '&speed=' + (s.speed || 0.8) + '&v=v2&text=' + encodeURIComponent(text);
+  return fetch(url).then(function(r){
+    if(!r.ok) throw new Error('tts ' + r.status);
+    return r.arrayBuffer();
+  }).then(function(){ return url; });
+}
+/* 用户第一次触碰页面就预热音频设备: 用同一个原生 <audio> 播 0.5s 不可闻信号 */
+var audioPrimed = false;
+var silenceUrl = null;
+function makeSilenceUrl(){
+  if(silenceUrl) return silenceUrl;
+  var sr = 8000, n = Math.floor(sr * 0.5);
+  var buf = new ArrayBuffer(44 + n * 2);
+  var v = new DataView(buf);
+  var ws = function(o, s){ for(var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  ws(36, 'data'); v.setUint32(40, n * 2, true);
+  for(var i = 0; i < n; i++) v.setInt16(44 + i * 2, (i % 2 ? 1 : -1), true);
+  silenceUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  return silenceUrl;
+}
+function primeAudio(){
+  if(audioPrimed) return;
+  audioPrimed = true;
+  try{
+    audioEl.src = makeSilenceUrl();
+    audioEl.play().catch(function(){});
+  }catch(e){}
+  try{ ctx(); }catch(e){}
+}
+document.addEventListener('pointerdown', primeAudio, true);
+document.addEventListener('keydown', primeAudio, true);
+function playBuf(url){
+  try{ audioEl.pause(); }catch(e){}
+  audioEl.src = url;
+  var p = audioEl.play();
+  if(p && p.catch) p.catch(function(){
+    setTimeout(function(){ audioEl.play().catch(function(){}); }, 150);
+  });
+}
+
+/* ---------- 跟读录音评测（本地 AI） ---------- */
+var pronBusy = false;
+var pronCtx = { mr: null, stream: null, chunks: [], timer: null };
+function b64u8(buf){
+  var u8 = new Uint8Array(buf), s = '', st = 0x8000;
+  for(var i = 0; i < u8.length; i += st) s += String.fromCharCode.apply(null, u8.subarray(i, i + st));
+  return btoa(s);
+}
+function pronToggle(btn, text, out, maxSecs){
+  if(pronCtx.mr && pronCtx.mr.state === 'recording'){ pronStop(); return; }
+  if(pronBusy){ toast('正在评分上一条，稍等'); return; }
+  if(!navigator.mediaDevices || !window.MediaRecorder){ toast('此浏览器不支持录音'); return; }
+  maxSecs = Math.max(6, Math.min(60, maxSecs || 10));
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream){
+    pronCtx.stream = stream; pronCtx.chunks = [];
+    var mr = new MediaRecorder(stream);
+    pronCtx.mr = mr;
+    mr.ondataavailable = function(e){ if(e.data && e.data.size) pronCtx.chunks.push(e.data); };
+    mr.onstop = function(){
+      try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+      var blob = new Blob(pronCtx.chunks, { type: mr.mimeType || 'audio/webm' });
+      if(blob.size < 1200){ toast('录音太短，请再试一次'); btn.textContent = '🎤'; return; }
+      pronScore(btn, text, blob, out);
+    };
+    mr.start();
+    btn.textContent = '⏹'; btn.classList.add('recing');
+    out.innerHTML = '<span style="color:#b91c1c">● 录音中…读完再点 ⏹ 结束（最长 ' + maxSecs + ' 秒）</span>';
+    pronCtx.timer = setTimeout(function(){
+      if(pronCtx.mr && pronCtx.mr.state === 'recording') pronStop();
+    }, maxSecs * 1000);
+  }).catch(function(){
+    if(location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+      toast('手机录音需要 HTTPS：请改用 https://' + location.hostname + ':8112 访问（首次点「继续访问」信任证书）');
+    }else{
+      toast('无法访问麦克风：请允许浏览器麦克风权限后重试');
+    }
+  });
+}
+function pronStop(){
+  clearTimeout(pronCtx.timer);
+  if(pronCtx.mr && pronCtx.mr.state === 'recording'){
+    try{ pronCtx.mr.stop(); }catch(e){}
+  }
+}
+function pronScore(btn, text, blob, out){
+  pronBusy = true;
+  btn.textContent = '…';
+  var rd = new FileReader();
+  rd.onload = function(){
+    fetch('/api/pron', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, audio: b64u8(rd.result) })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      pronBusy = false;
+      btn.textContent = '🎤'; btn.classList.remove('recing');
+      if(!res.ok || res.score === undefined){ out.textContent = res.error || '评分失败'; return; }
+      pronRender(out, res, blob);
+    }).catch(function(){
+      pronBusy = false; btn.textContent = '🎤'; btn.classList.remove('recing');
+      out.textContent = '评分失败：网络错误';
+    });
+  };
+  rd.readAsArrayBuffer(blob);
+}
+function pronRender(out, res, blob){
+  var color = res.score >= 90 ? '#15803d' : res.score >= 75 ? '#2563eb' : res.score >= 60 ? '#b45309' : '#b91c1c';
+  out.innerHTML = '';
+  var b = document.createElement('b');
+  b.style.cssText = 'color:' + color + ';font-size:14px';
+  b.textContent = res.score + ' 分';
+  out.appendChild(b);
+  var v = document.createElement('span');
+  v.style.cssText = 'color:' + color + ';margin-left:5px';
+  v.textContent = res.verdict;
+  out.appendChild(v);
+  var rp = document.createElement('button');
+  rp.className = 'mini';
+  rp.style.cssText = 'margin-left:6px;padding:2px 8px;font-size:12px';
+  rp.textContent = '🔊 回放';
+  rp.onclick = function(){
+    new Audio(URL.createObjectURL(blob)).play();
+  };
+  out.appendChild(rp);
+  var wrongs = (res.detail || []).filter(function(d){ return d.status !== 'ok' && d.status !== 'near'; });
+  if(res.score < 90 && (wrongs.length || res.recognized)){
+    var line = document.createElement('div');
+    line.style.cssText = 'font-size:12px;color:#6b7280;margin-top:2px';
+    var txt = 'AI 听到：' + (res.recognized || '（无）');
+    if(wrongs.length) txt += '　需注意：' + wrongs.map(function(d){ return d.w + (d.status === 'miss' ? '(漏读)' : '(错读)'); }).join('、');
+    line.textContent = txt;
+    out.appendChild(line);
+  }
+}
+
+/* ---------- 事件 ---------- */
+document.getElementById('kindSel').addEventListener('change', function(){
+  if(data){ data.kind = this.value; persistData(); }
+  render();
+});
+document.getElementById('edTitle').addEventListener('input', function(){
+  if(data){ data.title = this.value; persistData(); }
+});
+document.getElementById('btnOnlyUnchecked').addEventListener('click', function(){
+  onlyUnchecked = !onlyUnchecked;
+  this.textContent = onlyUnchecked ? '☑ 显示全部' : '☑ 只看未核对';
+  render();
+});
+document.getElementById('btnCheckAll').addEventListener('click', function(){
+  if(!data) return;
+  data.items.forEach(function(it){ it.ok = true; });
+  persistData(); render(); toast('已全部标记为核对');
+});
+document.getElementById('btnAdd').addEventListener('click', function(){
+  if(!data) data = { title: '', kind: document.getElementById('kindSel').value, items: [] };
+  data.items.push({ word:'', zh:'', sent:'', sentZh:'', words:[], ok:false });
+  persistData(); render();
+  var rows = document.getElementById('rows');
+  var last = rows.querySelector('tr:last-child textarea');
+  if(last){ last.focus(); last.scrollIntoView({ block:'center' }); }
+});
+document.getElementById('btnDelChecked').addEventListener('click', function(){
+  if(!data) return;
+  var before = data.items.length;
+  data.items = data.items.filter(function(it){
+    return !(!(it.sent || '').trim() && !(it.word || '').trim());
+  });
+  persistData(); render();
+  toast('已删除 ' + (before - data.items.length) + ' 个空行');
+});
+document.getElementById('btnSave').addEventListener('click', function(){
+  if(!data || !data.items.length){ toast('没有内容可保存'); return; }
+  var items = data.items.filter(function(it){ return (it.sent || '').trim() || (it.word || '').trim(); })
+    .map(function(it){
+      return { word: it.word || '', zh: it.zh || '', sent: it.sent || '',
+               sentZh: it.sentZh || '', words: it.words || [] };
+    });
+  if(!items.length){ toast('没有有效条目（英文为空）'); return; }
+  var done = data.items.filter(function(i){ return i.ok; }).length;
+  if(done < data.items.length && !saveConfirmed){
+    saveConfirmed = true;
+    toast('还有 ' + (data.items.length - done) + ' 条未核对，再点一次可强制保存');
+    setTimeout(function(){ saveConfirmed = false; }, 4000);
+    return;
+  }
+  var btn = this;
+  btn.disabled = true; btn.textContent = '保存中…';
+  fetch('/api/lessons/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: data.id || '',
+      title: (document.getElementById('edTitle').value || '').trim() || 'PDF导入（校对后）',
+      kind: data.kind || 'sent',
+      items: items
+    })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    btn.disabled = false; btn.textContent = '💾 保存入库';
+    if(!res.ok){ toast(res.error || '保存失败'); return; }
+    data.id = res.id;
+    toast('已保存：' + (res.title || '') + '（' + items.length + ' 条），可关闭本页');
+  }).catch(function(){
+    btn.disabled = false; btn.textContent = '💾 保存入库';
+    toast('保存失败：网络错误');
+  });
+});
+var saveConfirmed = false;
+
+/* 主页重新解析后, 已打开的校对页自动刷新（存储事件跨标签页通知） */
+window.addEventListener('storage', function(e){
+  if(e.key === DATA_KEY){
+    loadData(); render();
+    toast('已自动载入最新解析结果');
+  }
+});
+/* 从浏览器缓存恢复(后退/切回)时重新读数据, 避免显示旧内容 */
+window.addEventListener('pageshow', function(e){
+  if(e.persisted){ loadData(); render(); }
+});
+document.getElementById('btnReloadData').addEventListener('click', function(){
+  loadData(); render();
+  toast(data ? '已载入最新解析结果（' + data.items.length + ' 条）' : '当前没有待校对数据');
+});
+
+/* 整段填中文: 粘贴整篇中文按句拆分, 顺序填入空白的中文栏 */
+document.getElementById('btnZhFill').addEventListener('click', function(){
+  if(!data || !data.items.length){ toast('没有待校对的内容'); return; }
+  document.getElementById('zhModal').hidden = false;
+  document.getElementById('zhBulk').focus();
+});
+document.getElementById('zhCancel').addEventListener('click', function(){
+  document.getElementById('zhModal').hidden = true;
+});
+document.getElementById('zhFill').addEventListener('click', function(){
+  var txt = document.getElementById('zhBulk').value;
+  document.getElementById('zhModal').hidden = true;
+  if(!txt.trim()){ toast('没有粘贴中文内容'); return; }
+  var sents = txt.replace(/\s+/g, '').match(/[^。！？]+[。！？]*/g) || [];
+  if(!sents.length){ toast('没有识别到中文句子（需要以句号/问号/叹号结尾）'); return; }
+  var empty = data.items.filter(function(it){ return !(it.sentZh || '').trim(); });
+  var n = Math.min(empty.length, sents.length);
+  for(var i = 0; i < n; i++) empty[i].sentZh = sents[i];
+  persistData(); render();
+  var msg = '已填入 ' + n + ' 句中文';
+  if(sents.length > n) msg += '；中文多出 ' + (sents.length - n) + ' 句未用';
+  if(empty.length > n) msg += '；还有 ' + (empty.length - n) + ' 句英文待补';
+  msg += '，请逐句核对是否对位';
+  toast(msg);
+});
+
+loadData();
+render();
+</script>
+</body>
+</html>
