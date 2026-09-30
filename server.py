@@ -1101,6 +1101,34 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, **result})
             return
 
+        if parsed.path == "/api/lessons/flag":
+            lid = str(body.get("id") or "").strip()
+            try:
+                idx = int(body.get("index"))
+            except (TypeError, ValueError):
+                idx = -1
+            on = bool(body.get("on"))
+            if re.fullmatch(r"[A-Za-z0-9_\-]{1,64}", lid or "") and idx >= 0:
+                fp = os.path.join(DATA_DIR, lid + ".json")
+                if os.path.exists(fp):
+                    try:
+                        with open(fp, encoding="utf-8") as f:
+                            lesson = json.load(f)
+                        if idx < len(lesson.get("items") or []):
+                            if on:
+                                lesson["items"][idx]["flag"] = 1
+                            else:
+                                lesson["items"][idx].pop("flag", None)
+                            with open(fp, "w", encoding="utf-8") as f:
+                                json.dump(lesson, f, ensure_ascii=False, indent=1)
+                            self._json(200, {"ok": True})
+                            return
+                    except Exception as e:
+                        self._json(500, {"error": str(e)})
+                        return
+            self._json(400, {"error": "bad request"})
+            return
+
         if parsed.path == "/api/lessons/save":
             title = str(body.get("title") or "").strip()[:60] or "未命名词库"
             kind = str(body.get("kind") or "").strip()
@@ -1115,13 +1143,16 @@ class Handler(BaseHTTPRequestHandler):
                     w = str(w).strip()[:60]
                     if w:
                         words.append(w)
-                items.append({
+                entry = {
                     "word": str(it.get("word") or "").strip()[:100],
                     "zh": str(it.get("zh") or "").strip()[:120],
                     "sent": str(it.get("sent") or "").strip()[:400],
                     "sentZh": str(it.get("sentZh") or "").strip()[:200],
                     "words": words,
-                })
+                }
+                if it.get("flag"):
+                    entry["flag"] = 1
+                items.append(entry)
             items = [it for it in items if it["word"] or it["sent"]]
             if not items:
                 self._json(400, {"error": "no valid entries"})

@@ -59,6 +59,9 @@ select:focus,input:focus,textarea:focus{outline:2px solid #c7d2fe}
 
 /* 词条（查看） */
 .srow{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1.5px solid var(--line);border-radius:14px;margin-bottom:8px;background:#fff}
+.srow.flagrow{background:#fef2f2;border-color:#fca5a5}
+.wplay.flagon{background:#dc2626;color:#fff}
+#btnFlag.flagon{background:#dc2626;color:#fff;border-color:#dc2626}
 .srow .wnum{width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4338ca;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:none;margin-top:2px}
 .srow .smain{flex:1;min-width:0}
 .srow .wline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -189,6 +192,7 @@ footer p{margin-bottom:8px}
         <button class="mini maskbtn" data-mask="none">全部显示</button>
         <button class="mini maskbtn" data-mask="zh">遮住中文</button>
         <button class="mini maskbtn" data-mask="en">遮住英文</button>
+        <button class="mini" id="btnFlagOnly">⚑ 只看错句</button>
         <span class="muted">自测模式：点被遮住的条目可临时亮出</span>
       </div>
       <div class="rowflex" style="margin-bottom:10px">
@@ -327,7 +331,7 @@ footer p{margin-bottom:8px}
 
     <div class="startwrap">
       <button class="big" id="btnStart">▶ 开始听写</button>
-      <button class="ghost" id="btnPreview">🎧 先听一遍（跟读预览，显示内容）</button>
+      <button class="ghost" id="btnPreview">🎧 先听一遍（预览模式，会显示原文）</button>
       <p id="startCount">共 0 个词</p>
     </div>
   </div>
@@ -356,6 +360,7 @@ footer p{margin-bottom:8px}
       <button class="cbtn" id="btnReplay">🔁 重读</button>
       <button class="cbtn" id="btnNext">下一个 ⏭</button>
     </div>
+    <button class="cbtn" id="btnFlag" style="width:100%;margin-top:8px">⚑ 这句我错了（标记）</button>
     <button class="stopbtn" id="btnStop">⏹ 结束听写</button>
   </section>
 
@@ -1172,6 +1177,9 @@ function renderLessonSel(selId){
   openLesson(sel.value);
 }
 function openLesson(id){
+  view.flagOnly = false;
+  var fb = $('#btnFlagOnly');
+  if(fb){ fb.classList.remove('danger-on'); fb.textContent = '⚑ 只看错句'; }
   var L = null;
   for(var i = 0; i < lessons.length; i++){ if(lessons[i].id === id){ L = lessons[i]; break; } }
   if(!L) L = lessons[0];
@@ -1261,9 +1269,11 @@ function playPreview(btn, it){
 /* ===== 分页视图 ===== */
 function filteredItems(){
   if(!cur) return [];
+  var items = cur.items;
+  if(view.flagOnly) items = items.filter(function(it){ return !!it.flag; });
   var f = view.filter.trim().toLowerCase();
-  if(!f) return cur.items;
-  return cur.items.filter(function(it){
+  if(!f) return items;
+  return items.filter(function(it){
     var hay = ((it.word || '') + ' ' + (it.sent || '') + ' ' + (it.zh || '') + ' ' + (it.sentZh || '')).toLowerCase();
     return hay.indexOf(f) >= 0;
   });
@@ -1339,7 +1349,7 @@ function renderViewer(){
   pageItems().forEach(function(it, li){
     var i = base + li;
     var row = document.createElement('div');
-    row.className = 'srow';
+    row.className = 'srow' + (it.flag ? ' flagrow' : '');
     var num = document.createElement('span');
     num.className = 'wnum'; num.textContent = i + 1;
     var main = document.createElement('div');
@@ -1401,12 +1411,44 @@ function renderViewer(){
         setTimeout(function(){ if(!a.duration) done(0); }, 1200);
       }).catch(function(){ pronToggle(mic, t, pout, 10); });
     });
-    row.appendChild(num); row.appendChild(main); row.appendChild(play); row.appendChild(mic);
+    var fg = document.createElement('button');
+    fg.className = 'wplay' + (it.flag ? ' flagon' : '');
+    fg.title = it.flag ? '取消错句标记' : '标记错句（红色高亮，可长期保存）';
+    fg.textContent = '⚑';
+    fg.addEventListener('click', function(){ toggleFlag(it); });
+    row.appendChild(num); row.appendChild(main); row.appendChild(play); row.appendChild(mic); row.appendChild(fg);
     main.appendChild(pout);
     list.appendChild(row);
   });
   updatePageBar();
 }
+
+/* ============ 错句标注 ============ */
+function toggleFlag(it){
+  it.flag = it.flag ? 0 : 1;
+  if(cur && cur.id){
+    fetch('/api/lessons/flag', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cur.id, index: cur.items.indexOf(it), on: !!it.flag })
+    }).catch(function(){});
+  }else{
+    toast('词库尚未保存，标记仅本次有效');
+  }
+  if(document.getElementById('dictCard').hidden) renderViewer();
+}
+$('#btnFlag').addEventListener('click', function(){
+  var it = state.items[state.idx];
+  if(!it) return;
+  toggleFlag(it);
+  renderProgress();
+});
+$('#btnFlagOnly').addEventListener('click', function(){
+  view.flagOnly = !view.flagOnly;
+  this.classList.toggle('danger-on', view.flagOnly);
+  this.textContent = view.flagOnly ? '⚑ 显示全部' : '⚑ 只看错句';
+  view.page = 1;
+  renderViewer(); updateStartCount();
+});
 
 /* ============ 编辑器 ============ */
 function startEditing(makeNew){
@@ -1559,7 +1601,7 @@ function updateStartCount(){
   var total = currentItems().length;
   $('#startCount').textContent = '本页 ' + n + ' 条 · 全库 ' + total + ' 条（听写按当前页进行）';
   $('#btnStart').textContent = '▶ 开始听写（本页 ' + n + ' 条）';
-  $('#btnPreview').textContent = '🎧 先听一遍（本页）';
+  $('#btnPreview').textContent = '🎧 先听一遍（预览，显示原文）';
 }
 /* 每个词条的播放列表：[{t, kind, gap}] */
 function buildPlaylist(it){
@@ -1617,6 +1659,8 @@ function startDictation(items, preview){
       hide('#home'); hide('#resultCard'); show('#dictCard');
       $('#btnPause').textContent = '⏸ 暂停';
       $('#dSent').hidden = !preview;
+      if(!preview){ $('#dSent').textContent = ''; $('#dSent').hidden = true; }
+      $('#dHint').hidden = true;
       renderProgress();
       setStatus('准备开始…');
       requestWakeLock();
@@ -1643,6 +1687,12 @@ function renderProgress(){
     if(it.word) parts.push(it.word + (it.zh ? '（' + it.zh + '）' : ''));
     if(it.sent) parts.push(it.sent);
     $('#dSent').textContent = parts.join('\n');
+  }
+  var bf = $('#btnFlag');
+  if(bf){
+    var fon = !!(it && it.flag);
+    bf.classList.toggle('flagon', fon);
+    bf.textContent = fon ? '⚑ 已标记错句（点击取消）' : '⚑ 这句我错了（标记）';
   }
   var h = $('#dHint');
   if(!state.preview && settings.hint && it && (it.zh || it.sentZh)){
