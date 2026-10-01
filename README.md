@@ -24,6 +24,10 @@
 - **手机同用**：同一 WiFi 手机浏览器直接用，支持"添加到主屏幕"当 App；iPhone 跟读录音走 HTTPS
 - **断点续跑**：语音批量预生成中途断电重启后自动接续
 
+## 📥 免安装体验包（Windows）
+
+不想装 Python？到 [**Releases**](https://github.com/chachacats2008-lgtm/english-dictation/releases/latest) 下载绿色体验包（约 550MB，内含全部模型与词库），解压后双击「启动英语全套学习.exe」即可——程序缩到屏幕右下角托盘，自动打开学习页面。
+
 ## 🚀 快速开始
 
 要求：Windows（Mac/Linux 理论可用，脚本未适配）、Python 3.10+
