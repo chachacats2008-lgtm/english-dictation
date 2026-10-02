@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """英语全套学习 - 托盘启动器
 双击后后台启动本地服务并自动打开浏览器, 缩到系统托盘;
-托盘图标右键菜单: 打开学习页面 / 退出。
+托盘图标右键菜单: 打开学习页面 / 重启服务 / 退出。
+单实例保护: 重复双击不会产生新实例, 而是直接打开学习页面。
 """
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -15,6 +17,7 @@ import pystray
 from PIL import Image
 
 PORT = 8111
+GUARD_PORT = 8113          # 单实例哨兵端口
 APP_DIR = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
 RUNTIME = os.path.join(APP_DIR, "runtime", "python", "python.exe")
@@ -56,6 +59,20 @@ def start_server():
                             stdout=logf, stderr=logf, creationflags=flags)
 
 
+def restart_server(icon=None, item=None):
+    global proc
+    if proc:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        proc = None
+    time.sleep(1)
+    if not server_alive():
+        start_server()
+    open_page()
+
+
 def wait_ready(sec=90):
     for _ in range(sec * 2):
         if server_alive():
@@ -84,10 +101,46 @@ def tray_image():
     return Image.new("RGB", (64, 64), (67, 56, 202))
 
 
+def acquire_primary():
+    """单实例锁。已有实例在运行: 通知它打开页面并返回 False;
+    本实例是第一个: 绑定哨兵端口监听后续通知, 返回 True。"""
+    try:
+        c = socket.create_connection(("127.0.0.1", GUARD_PORT), timeout=1)
+        c.sendall(b"open")
+        c.close()
+        return False
+    except OSError:
+        pass
+    try:
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", GUARD_PORT))
+        srv.listen(2)
+    except OSError:
+        webbrowser.open("http://localhost:%d" % PORT)   # 端口被占的兜底
+        return False
+
+    def watch():
+        while True:
+            try:
+                c, _ = srv.accept()
+                data = c.recv(16)
+                c.close()
+                if data:
+                    open_page()
+            except OSError:
+                pass
+
+    threading.Thread(target=watch, daemon=True).start()
+    return True
+
+
 def main():
+    if not acquire_primary():
+        sys.exit(0)               # 已有实例: 它会替你打开页面
     start_server()
     menu = pystray.Menu(
         pystray.MenuItem("📖 打开学习页面", open_page, default=True),
+        pystray.MenuItem("🔄 重启服务", restart_server),
         pystray.MenuItem("❌ 退出（关闭服务）", quit_app),
     )
     icon = pystray.Icon("english_all_in_one", tray_image(),
