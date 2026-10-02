@@ -134,10 +134,25 @@ def acquire_primary():
     return True
 
 
+def watchdog():
+    """看门狗: 服务进程意外退出时自动重启"""
+    global proc
+    while True:
+        time.sleep(25)
+        if proc is not None and proc.poll() is not None:
+            proc = None          # 已死, 清理后重启
+        if proc is None and not server_alive():
+            try:
+                start_server()
+            except Exception:
+                pass
+
+
 def main():
     if not acquire_primary():
         sys.exit(0)               # 已有实例: 它会替你打开页面
     start_server()
+    threading.Thread(target=watchdog, daemon=True).start()
     menu = pystray.Menu(
         pystray.MenuItem("📖 打开学习页面", open_page, default=True),
         pystray.MenuItem("🔄 重启服务", restart_server),

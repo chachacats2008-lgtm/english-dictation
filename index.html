@@ -907,9 +907,17 @@ function ttsUrl(text){
 /* getAudio: 预取音频进浏览器缓存, 返回可播放的 URL（交给原生播放器） */
 function getAudio(text){
   var url = ttsUrl(text);
-  return fetch(url).then(function(resp){
-    if(!resp.ok) throw new Error('tts http ' + resp.status);
-    return resp.arrayBuffer();
+  var once = function(){
+    return fetch(url).then(function(resp){
+      if(!resp.ok) throw new Error('tts http ' + resp.status);
+      return resp.arrayBuffer();
+    });
+  };
+  // 失败自动重试一次(手机网络/长合成易瞬时中断)
+  return once().catch(function(){
+    return new Promise(function(res, rej){
+      setTimeout(function(){ once().then(res).catch(rej); }, 1500);
+    });
   }).then(function(){ return url; });
 }
 function AC(){    // 仅用于设备预热(primeAudio); 正式播放走原生 <audio>

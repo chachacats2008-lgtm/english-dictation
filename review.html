@@ -264,9 +264,16 @@ function getAudio(text){
   var s = settings || {};
   var url = '/api/tts?voice=' + encodeURIComponent(s.voice || 'kokoro:af_heart') +
             '&speed=' + (s.speed || 0.8) + '&v=v2&text=' + encodeURIComponent(text);
-  return fetch(url).then(function(r){
-    if(!r.ok) throw new Error('tts ' + r.status);
-    return r.arrayBuffer();
+  var once = function(){
+    return fetch(url).then(function(r){
+      if(!r.ok) throw new Error('tts ' + r.status);
+      return r.arrayBuffer();
+    });
+  };
+  return once().catch(function(){
+    return new Promise(function(res, rej){
+      setTimeout(function(){ once().then(res).catch(rej); }, 1500);
+    });
   }).then(function(){ return url; });
 }
 /* 用户第一次触碰页面就预热音频设备: 用同一个原生 <audio> 播 0.5s 不可闻信号 */

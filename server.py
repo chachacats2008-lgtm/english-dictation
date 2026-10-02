@@ -413,12 +413,22 @@ def _load_warm_queue():
         print("[warm] 重启恢复: %d 条待生成(已完成的自动跳过)" % resumed)
 
 
+_last_interactive = [0.0]     # 最近一次实时点播时刻; 预生成给它让路
+
+
+def mark_interactive():
+    _last_interactive[0] = time.time()
+
+
 def warm_worker():
     while True:
         if not warm_queue:
             warm_state["running"] = False
             time.sleep(0.5)
             continue
+        # 让路: 手机/浏览器正在实时点播时暂停预生成, 点播请求不再排队
+        while time.time() - _last_interactive[0] < 3.0:
+            time.sleep(0.3)
         warm_state["running"] = True
         engine, voice, speed, text = warm_queue.pop(0)
         _save_warm_queue()                    # 剩余队列实时落盘, 重启可续
@@ -971,6 +981,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/tts":
+            mark_interactive()
             text = (q.get("text") or [""])[0].strip()
             voice = (q.get("voice") or [""])[0].strip()
             try:
