@@ -2020,7 +2020,7 @@ function bind(){
       }else{
         toast('语音已是最新方案，无需重新生成 ✓');
       }
-    }).catch(function(){ toast('请求失败'); });
+    }).catch(function(){ toast('请求失败：服务可能已停止，请右键托盘图标退出后重新双击启动'); });
   });
 
   $('#btnWarm').addEventListener('click', function(){
@@ -2033,7 +2033,7 @@ function bind(){
     }).then(function(r){
       if(r.queued > 0){ toast('已加入生成队列：' + r.queued + ' 条'); startWarmPolling(); }
       else toast('语音已全部生成过，无需等待 ✓');
-    }).catch(function(){ toast('请求失败'); });
+    }).catch(function(){ toast('请求失败：服务可能已停止，请右键托盘图标退出后重新双击启动'); });
   });
 
   $('#btnAddRow').addEventListener('click', function(){

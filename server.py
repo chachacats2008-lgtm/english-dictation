@@ -887,6 +887,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "cert not found"})
             return
 
+        if path == "/api/diag":
+            mods = ["numpy", "onnxruntime", "kokoro_onnx", "fitz", "vosk",
+                    "cv2", "rapidocr_onnxruntime", "audiotsm", "edge_tts"]
+            out = {}
+            for m in mods:
+                try:
+                    __import__(m)
+                    out[m] = "ok"
+                except Exception as e:
+                    out[m] = repr(e)[:120]
+            self._json(200, {"ok": all(v == "ok" for v in out.values()),
+                             "python": sys.version.split()[0], "modules": out})
+            return
+
         if path == "/api/pron/status":
             self._json(200, {"ok": True, "ready": vosk_available()})
             return
@@ -1262,9 +1276,29 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
 
+def self_diag():
+    """启动自诊断: 关键依赖能否导入, 结果写日志(排查朋友电脑问题用)"""
+    mods = ["numpy", "onnxruntime", "kokoro_onnx", "fitz", "vosk",
+            "cv2", "rapidocr_onnxruntime", "audiotsm", "edge_tts"]
+    ok_all = True
+    for m in mods:
+        try:
+            __import__(m)
+            print("[diag] %-22s OK" % m)
+        except Exception as e:
+            ok_all = False
+            print("[diag] %-22s 失败: %r" % (m, e))
+    if ok_all:
+        print("[diag] 全部依赖就绪")
+    else:
+        print("[diag] 存在失败依赖, 对应功能不可用(其余照常)")
+    return ok_all
+
+
 def main():
     seed_if_empty()
     _load_warm_queue()
+    threading.Thread(target=self_diag, daemon=True).start()
     # 后台预加载本地模型，首次请求更快
     if kokoro_available():
         threading.Thread(target=_init_kokoro, daemon=True).start()

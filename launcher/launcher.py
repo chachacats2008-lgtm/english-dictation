@@ -135,17 +135,34 @@ def acquire_primary():
 
 
 def watchdog():
-    """看门狗: 服务进程意外退出时自动重启"""
+    """看门狗: 服务进程意外退出时自动重启; 反复崩溃则弹窗显示日志"""
     global proc
+    crashes = []
     while True:
         time.sleep(25)
         if proc is not None and proc.poll() is not None:
+            crashes.append(time.time())
             proc = None          # 已死, 清理后重启
         if proc is None and not server_alive():
+            # 2分钟内崩3次以上: 不再无脑重启, 直接显示错误日志
+            recent = [t for t in crashes if time.time() - t < 120]
+            if len(recent) >= 3:
+                show_crash_log()
+                crashes = []
             try:
                 start_server()
             except Exception:
                 pass
+
+
+def show_crash_log():
+    """把服务日志尾部弹给用户看(截图发回即可定位)"""
+    try:
+        with open(LOG, "rb") as f:
+            tail = f.read()[-2500:].decode("utf-8", "ignore")
+        _alert("服务反复重启失败，以下是错误日志(请截图发给维护者)：\n\n" + tail)
+    except Exception:
+        pass
 
 
 def main():
