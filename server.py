@@ -1277,17 +1277,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def self_diag():
-    """启动自诊断: 关键依赖能否导入, 结果写日志(排查朋友电脑问题用)"""
+    """启动自诊断: 用 find_spec 只检查模块是否存在(不实际导入,
+    避免启动时加载大模型阻塞 HTTP 服务)。逐个导入的重检查只在 /api/diag 按需做。"""
+    import importlib.util as _ilu
     mods = ["numpy", "onnxruntime", "kokoro_onnx", "fitz", "vosk",
             "cv2", "rapidocr_onnxruntime", "audiotsm", "edge_tts"]
     ok_all = True
     for m in mods:
-        try:
-            __import__(m)
-            print("[diag] %-22s OK" % m)
-        except Exception as e:
+        if _ilu.find_spec(m) is None:
             ok_all = False
-            print("[diag] %-22s 失败: %r" % (m, e))
+            print("[diag] %-22s 缺失" % m)
+        else:
+            print("[diag] %-22s 存在" % m)
     if ok_all:
         print("[diag] 全部依赖就绪")
     else:

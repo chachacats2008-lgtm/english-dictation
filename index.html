@@ -654,102 +654,80 @@ function parseStoryText(raw){
     } else if(hasCn){ cnParas.push(lines.join('')); }
     else if(hasEn){ enParas.push(lines.join(' ')); }
   });
-  /* 单个中文句按逗号切块（引号内的逗号不切），过短碎块并入后块 */
-  function cnCommas(z){
-    var cls = [], cur = '', inQ = false;
+  /* 引号外逗号位置(用于句内拆分) */
+  function commaPositions(z){
+    var pos = [], inQ = false;
     for(var i = 0; i < z.length; i++){
       var ch = z.charAt(i);
-      cur += ch;
       if(ch === '"' || ch === '“' || ch === '「' || ch === '『'){
-        if(ch === '"') inQ = !inQ;
-        else inQ = true;
-      } else if(ch === '”' || ch === '」' || ch === '」' || ch === '』'){
+        if(ch === '"') inQ = !inQ; else inQ = true;
+      } else if(ch === '”' || ch === '」' || ch === '』'){
         inQ = false;
-      } else if(!inQ && (ch === '，' || ch === ',')){
-        cls.push(cur); cur = '';
-      }
+      } else if(!inQ && (ch === '，' || ch === ',')){ pos.push(i); }
     }
-    if(cur) cls.push(cur);
-    var out = [];
-    for(var q = 0; q < cls.length; q++){
-      var c = cls[q];
-      if(c.replace(/[^一-龥]/g, '').length < 4 && q < cls.length - 1){
-        cls[q + 1] = c + cls[q + 1];
-        continue;
-      }
-      if(c.replace(/[^一-龥]/g, '').length < 4 && out.length){
-        out[out.length - 1] += c;
-        continue;
-      }
-      out.push(c);
-    }
-    return out;
+    return pos;
   }
-  function pair(cn, en){                      // 段内逐句配对
+  function pair(cn, en){                      // 段内配对: 先调平句数, 再一一对应(绝不重复)
     var es = storyEnSents(en), zs = storyZhSents(cn);
     if(!es.length) return;
     if(!zs.length){                           // 无中文: 句子直接入库, 中文留空
       es.forEach(function(e){ items.push({word:'', zh:'', sent: e, sentZh: '', words: []}); });
       return;
     }
-    if(es.length === zs.length){              // 句数相等: 一一对应
-      es.forEach(function(e, j){
-        items.push({word:'', zh:'', sent: e, sentZh: zs[j], words: []});
-      });
+    // 英文累计占比 = 对齐目标
+    var eL = es.map(function(s){ return s.split(/\s+/).length; });
+    var eT = eL.reduce(function(a,b){ return a+b; }, 0) || 1;
+    var eCum = [], acc = 0;
+    for(var j = 0; j < es.length; j++){ acc += eL[j]; eCum.push(acc / eT); }
+    function zerr(arr){                       // 模拟序列与英文占比的贴合误差
+      var tot = arr.reduce(function(a,b){ return a + b.length; }, 0) || 1;
+      var c = [], a2 = 0, e = 0;
+      for(var i = 0; i < arr.length; i++){ a2 += arr[i].length; c.push(a2 / tot); }
+      for(var j2 = 0; j2 < Math.min(c.length, eCum.length); j2++){ e += Math.abs(c[j2] - eCum[j2]); }
+      return e;
+    }
+    var guard = 0;
+    while(zs.length > es.length && guard++ < 80){       // 中文偏多: 合并一对位置最优的相邻句
+      var best = -1, be = Infinity;
+      for(var i = 0; i < zs.length - 1; i++){
+        var sim = zs.slice(0, i).concat([zs[i] + zs[i + 1]], zs.slice(i + 2));
+        var er = zerr(sim);
+        if(er < be){ be = er; best = i; }
+      }
+      if(best < 0) break;
+      zs.splice(best, 2, zs[best] + zs[best + 1]);
+    }
+    guard = 0;
+    while(zs.length < es.length && guard++ < 80){       // 英文偏多: 全局最优的单处逗号拆分
+      var bb = null, be2 = Infinity;
+      for(var q = 0; q < zs.length; q++){
+        var pos = commaPositions(zs[q]);
+        for(var p = 0; p < pos.length; p++){
+          var cut = pos[p] + 1;
+          if(cut < 4 || zs[q].length - cut < 4) continue;
+          var sim = zs.slice(0, q).concat([zs[q].slice(0, cut), zs[q].slice(cut)], zs.slice(q + 1));
+          var er = zerr(sim);
+          if(er < be2){ be2 = er; bb = [q, sim]; }
+        }
+      }
+      if(!bb) break;                          // 全都拆不开: 走共享兜底
+      zs = bb[1];
+    }
+    if(zs.length === es.length){              // 调平成功: 一一对应, 不重复不丢失
+      for(var j4 = 0; j4 < es.length; j4++){
+        items.push({word:'', zh:'', sent: es[j4], sentZh: zs[j4], words: []});
+      }
       return;
     }
-    // 第一步: 句级映射——每个英文句对应累计占比最近的中文句(单调)
-    var eL = es.map(function(s){ return s.split(/\s+/).length; });
+    // 极端兜底(中文全拆不开仍偏少): 按累计占比就近(可能少量共享)
     var zL = zs.map(function(s){ return s.length; });
-    var eT = eL.reduce(function(a,b){ return a+b; }, 0) || 1;
     var zT = zL.reduce(function(a,b){ return a+b; }, 0) || 1;
-    var zCum = [], zAcc = 0;
-    for(var q2 = 0; q2 < zs.length; q2++){ zAcc += zL[q2]; zCum.push(zAcc / zT); }
-    var map = [], k = 0, eAcc = 0;
-    for(var j = 0; j < es.length; j++){
-      eAcc += eL[j];
-      var target = eAcc / eT;
-      while(k < zs.length - 1 && Math.abs(zCum[k+1] - target) <= Math.abs(zCum[k] - target)) k++;
-      map.push(k);
-    }
-    // 第二步: 按中文句分组; 覆盖多个英文句的中文句按逗号切块精确分配
-    var groups = {};
-    zs.forEach(function(z, g){ groups[g] = []; });
-    map.forEach(function(g2, j2){ groups[g2].push(j2); });
-    var byEn = {};
-    Object.keys(groups).forEach(function(g3){
-      var js = groups[g3];
-      if(js.length === 1){
-        byEn[js[0]] = zs[g3];
-        return;
-      }
-      var cls = cnCommas(zs[g3]);
-      if(cls.length < js.length){             // 逗号不够分: 整句共享
-        js.forEach(function(j5){ byEn[j5] = zs[g3]; });
-        return;
-      }
-      var L2 = js.map(function(j6){ return eL[j6]; });
-      var T2 = L2.reduce(function(a,b){ return a+b; }, 0) || 1;
-      var cL2 = cls.map(function(c){ return Math.max(2, c.length); });
-      var cT2 = cL2.reduce(function(a,b){ return a+b; }, 0) || 1;
-      var bnds = [0], acc2 = 0;
-      for(var t = 1; t < js.length; t++){
-        acc2 += L2[t - 1];
-        var tg = acc2 / T2 * cT2, run = 0, bi = cls.length;
-        for(var u = 0; u < cls.length; u++){
-          run += cL2[u];
-          if(run >= tg){ bi = u + 1; break; }
-        }
-        bi = Math.min(Math.max(bi, bnds[t - 1] + 1), cls.length - (js.length - t));
-        bnds.push(bi);
-      }
-      bnds.push(cls.length);
-      js.forEach(function(j7, t2){
-        byEn[j7] = cls.slice(bnds[t2], bnds[t2 + 1]).join('');
-      });
-    });
-    for(var j8 = 0; j8 < es.length; j8++){
-      items.push({word:'', zh:'', sent: es[j8], sentZh: byEn[j8] || '', words: []});
+    var zCum = [], a2b = 0;
+    for(var q3 = 0; q3 < zs.length; q3++){ a2b += zL[q3]; zCum.push(a2b / zT); }
+    var k = 0;
+    for(var j3 = 0; j3 < es.length; j3++){
+      while(k < zs.length - 1 && Math.abs(zCum[k+1] - eCum[j3]) <= Math.abs(zCum[k] - eCum[j3])) k++;
+      items.push({word:'', zh:'', sent: es[j3], sentZh: zs[k], words: []});
     }
   }
   if(cnParas.length && enParas.length){
