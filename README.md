@@ -21,6 +21,7 @@
 - **PDF 词书导入**：普通 PDF 直接提取文字；**扫描图片版 PDF 自动 AI 识别（OCR）**，按页码范围导入；解析结果进独立校对页逐条人工核对后再入库
 - **词库管理**：内置 4000 词初中+中考/高考词库（含例句）、原创 60 篇中考短文（整篇背诵 + 逐句听写 + 可打印 PDF 练习册）；增删改查、批量导入、按页浏览
 - **打印练习册**：一键导出每篇一页的背诵/默写两用 PDF
+- **托盘启动器**：exe 双击即用，服务后台运行、缩到右下角托盘，单实例保护 + 崩溃自愈看门狗
 - **手机同用**：同一 WiFi 手机浏览器直接用，支持"添加到主屏幕"当 App；iPhone 跟读录音走 HTTPS
 - **断点续跑**：语音批量预生成中途断电重启后自动接续
 
@@ -39,11 +40,20 @@ pip install -r requirements.txt
 # 2. 下载语音模型（约 400MB，一次性；国内自动走 hf-mirror 镜像）
 python setup_models.py
 
-# 3. 启动
+# 3. 启动（有黑色窗口的命令行方式）
 python server.py
 ```
 
 浏览器打开 http://localhost:8111 即可。
+
+**想要托盘后台运行？** 构建托盘启动器（一次性，之后双击 exe 即可）：
+
+```bash
+pip install pystray pyinstaller
+python tools/build_launcher.py   # 生成 dist/english-dictation/启动英语全套学习.exe
+```
+
+把 `启动英语全套学习.exe` 与 `server.py` 放同一目录，双击后：服务后台运行、自动打开页面、缩到右下角托盘（右键可打开页面/重启服务/退出），带单实例保护和崩溃自愈看门狗。
 
 ### 手机使用（同一 WiFi）
 
@@ -69,6 +79,8 @@ data/            词库数据（JSON，备份这个目录即可）
                  仅展示“双语文章逐句导入”的效果）
 setup_models.py  模型下载脚本（模型不进 Git，首次运行一次）
 gen_cert.bat     生成 iPhone 录音用的 HTTPS 证书
+launcher/        托盘启动器源码（tools/build_launcher.py 构建 exe）
+docs/            README 截图
 ```
 
 自建词库保存在 `data/l*.json`，已 gitignore，不会误传到网上。
