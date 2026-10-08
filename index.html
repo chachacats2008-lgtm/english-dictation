@@ -567,6 +567,20 @@ function isNewEntryLine(line){
   if(/^[\u4e00-\u9fff（(]/.test(rest)) return true;
   return false;
 }
+/* OCR/排版符号清理: **加粗** *斜体* ~~删除线~~ #标题 >引用 等, 剥标记留文字 */
+function ocrClean(raw){
+  return (raw || '')
+    .replace(/[*＊]+/g, '')
+    .replace(/~~/g, '')
+    .replace(/`+/g, '')
+    .replace(/_{2,}/g, '')
+    .split(/\r?\n/).map(function(l){
+      return l.replace(/^\s{0,3}#{1,6}\s*/, '')
+              .replace(/^\s{0,3}>\s?/, '')
+              .replace(/\s+#{1,6}\s*$/, '');
+    })
+    .join('\n');
+}
 /* ============ 双语故事解析：整篇中文+整篇英文 / 中英段落交替 / 单行对照 ============ */
 /* 引号感知切句: 引号内部的 .!?/。！？ 不算句界, 对话保持整句;
    引号不成对(缺闭引号)时自动降级为忽略引号重切, 防止整段糊成一句 */
@@ -619,7 +633,7 @@ function storyZhSents(t){
 }
 function parseStoryText(raw){
   if(!raw || raw.length < 40) return null;
-  raw = raw.replace(/={2,}[^=]*={2,}/g, '\n');
+  raw = ocrClean(raw.replace(/={2,}[^=]*={2,}/g, '\n'));
   var CN = /[\u3400-\u9fff]/, EN = /[A-Za-z]/;
   var paras = raw.split(/\r?\n\s*\r?\n/).map(function(p){ return p.trim(); }).filter(Boolean);
   if(paras.length < 2){                       // 无空行分隔时按行处理
@@ -744,6 +758,7 @@ function parseStoryText(raw){
 }
 function parsePdfText(raw){
   var out = [];
+  raw = ocrClean(raw);
   // OCR 常见问题修复: 英文单词和词性/中文挤在一起丢失空格。
   // 词性拆分只在其后紧跟中文时进行——否则 attention. 会被劈成 attentio n.，part. 会被劈成 pa rt.
   raw = (raw || '')
