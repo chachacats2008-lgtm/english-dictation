@@ -633,107 +633,185 @@ function storyZhSents(t){
 }
 function parseStoryText(raw){
   if(!raw || raw.length < 40) return null;
-  raw = ocrClean(raw.replace(/={2,}[^=]*={2,}/g, '\n'));
+  raw = raw.replace(/={2,}[^=]*={2,}/g, '\n');
   var CN = /[\u3400-\u9fff]/, EN = /[A-Za-z]/;
-  var paras = raw.split(/\r?\n\s*\r?\n/).map(function(p){ return p.trim(); }).filter(Boolean);
-  if(paras.length < 2){                       // 无空行分隔时按行处理
-    paras = raw.split(/\r?\n/).map(function(p){ return p.trim(); }).filter(Boolean);
+  var endsPunct = /[.!?。！？]["'’”)]?$/;
+
+  /* 行级分块: 小标题独立成块(# 标记行, 或"短且无句末标点"且非续行的行) */
+  function preview(l){
+    return l.replace(/^\s{0,3}#{1,6}\s*/, '')
+            .replace(/^\s{0,3}>\s?/, '')
+            .replace(/[*＊~`_]/g, '').trim();
   }
-  paras = paras.filter(function(p){           // 去掉"译文/原文"说明行
-    return !(p.length < 40 && /(译文|原文|翻译|对照|如下)/.test(p));
+  var L = raw.split(/\r?\n/);
+  var prevNE = [], nextNE = [], lastI = -1, i;
+  for(i = 0; i < L.length; i++){ prevNE[i] = lastI; if(L[i].trim()) lastI = i; }
+  var nxtI = -1;
+  for(i = L.length - 1; i >= 0; i--){ nextNE[i] = nxtI; if(L[i].trim()) nxtI = i; }
+  function markerHead(l){                               // 带排版标记的标题行
+    return /^\s{0,3}#{1,6}\s/.test(l) ||
+           /^\s{0,3}[*＊]{1,3}[^*＊]+[*＊]{1,3}\s*$/.test(l.trim());
+  }
+  function isHead(li){
+    var l = L[li], c = preview(l);
+    if(!c || c.length > 30) return false;
+    if(endsPunct.test(c) || /[，,;；:]$/.test(c)) return false;
+    if(markerHead(l)) return true;                      // # 标题 / **加粗标题**
+    var pl = prevNE[li] >= 0 ? L[prevNE[li]] : '';
+    var p = prevNE[li] >= 0 ? preview(pl) : '';
+    var pHeadish = !p || endsPunct.test(p) || markerHead(pl) ||
+                   (p.length <= 30 && !endsPunct.test(p) && !/[，,;；:]$/.test(p));
+    if(!pHeadish) return false;                         // 前一行是未收句的正文 → 续行
+    var n2 = nextNE[li] >= 0 ? L[nextNE[li]].trim() : '';
+    if(n2 && /^[a-z]/.test(n2)) return false;           // 下一行小写续行 → 不是标题
+    return true;
+  }
+  var blocks = [], cur = null;
+  function flush(){ if(cur !== null && cur.trim()) blocks.push({head:false, text: cur}); cur = null; }
+  var hasBlank = /\r?\n[ \t]*\r?\n/.test(raw);   // 是否存在空行分段
+  for(i = 0; i < L.length; i++){
+    var line = L[i];
+    if(!line.trim()){ flush(); continue; }
+    if(isHead(i)){
+      flush();
+      blocks.push({head:true, text: preview(line)});
+    }else{
+      cur = (cur === null) ? line : cur + '\n' + line;
+      if(!hasBlank) flush();          // 无空行文本: 每行自成一块(与旧版回退一致)
+    }
+  }
+  flush();
+  blocks = blocks.filter(function(b){                  // 去掉"译文/原文"说明行
+    return !(b.text.replace(/\n/g, ' ').length < 40 && /(译文|原文|翻译|对照|如下)/.test(b.text));
   });
-  if(paras.length < 2) return null;
+  if(blocks.length < 2) return null;
   var title = '';
-  var f = paras[0];
-  if(f.length <= 40 && !/[.!?。！？]$/.test(f) && f.split(/\s+/).length <= 10){
-    title = f.replace(/^#+\s*/, '');
-    paras.shift();
+  if(blocks[0].head){                                  // 首个小标题 → 库名
+    title = blocks[0].text;
+    blocks.shift();
   }
-  var items = [], cnParas = [], enParas = [];
-  paras.forEach(function(p){
-    var lines = p.split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+
+  /* 语言分拣: 标题块 / 中文段 / 英文段 / 单行对照 */
+  var cnH = [], enH = [], cnParas = [], enParas = [];
+  var headZhForced = {}, mixedItems = {}, seq = [], mixedSeq = 0;
+  var cnHPos = [], enHPos = [], cnCnt = 0, enCnt = 0;
+  blocks.forEach(function(b){
+    var t = ocrClean(b.text);
+    if(b.head){
+      var ix = t.search(/[\u3400-\u9fff]/);
+      if(ix > 0 && EN.test(t.slice(0, ix))){          // 行内自带中英(如 "Part 1 第一部分")
+        headZhForced[enH.length] = t.slice(ix).trim();
+        enHPos[enH.length] = enCnt;
+        enH.push(t.slice(0, ix).replace(/[\s,;:·\-—]+$/, '').trim());
+      }else if(ix === 0 || (ix < 0 && CN.test(t) && !EN.test(t))){
+        seq.push({t:'cnH', i: cnH.length});
+        cnHPos[cnH.length] = cnCnt;
+        cnH.push(t);
+      }else{
+        seq.push({t:'enH', i: enH.length});
+        enHPos[enH.length] = enCnt;
+        enH.push(t);
+      }
+      return;
+    }
+    var lines = t.split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
     var hasCn = false, hasEn = false;
     lines.forEach(function(l){ if(CN.test(l)) hasCn = true; if(EN.test(l)) hasEn = true; });
-    if(hasCn && hasEn){                       // 单行中英对照: 英文在前的行拆成句对
+    if(hasCn && hasEn){                                // 单行中英对照: 原地成对
+      var pairs = [];
       lines.forEach(function(l){
-        var i = l.search(/[\u3400-\u9fff]/);
-        if(i > 0){
-          var en = l.slice(0, i).replace(/[\s,;:·\-—]+$/, '').trim();
-          var zh = l.slice(i).trim();
+        var p2 = l.search(/[\u3400-\u9fff]/);
+        if(p2 > 0){
+          var en = l.slice(0, p2).replace(/[\s,;:·\-—]+$/, '').trim();
+          var zh = l.slice(p2).trim();
           if(en && en.split(/\s+/).length >= 2 && EN.test(en)){
-            items.push({word: '', zh: '', sent: en, sentZh: zh, words: []});
+            pairs.push({word:'', zh:'', sent: en, sentZh: zh, words: []});
           }
         }
       });
-    } else if(hasCn){ cnParas.push(lines.join('')); }
-    else if(hasEn){ enParas.push(lines.join(' ')); }
+      if(pairs.length){ seq.push({t:'mix', i: mixedSeq}); mixedItems[mixedSeq++] = pairs; cnCnt++; enCnt++; return; }
+    }
+    if(hasCn){ seq.push({t:'cn', i: cnParas.length}); cnParas.push(lines.join('')); cnCnt++; }
+    else if(hasEn){ seq.push({t:'en', i: enParas.length}); enParas.push(lines.join(' ')); enCnt++; }
   });
+
+  /* 标题配对: 两侧标题数一致时按序配对(强制指定的优先) */
+  var headZh = {}, usedC = {};
+  for(var e0 = 0; e0 < enH.length; e0++){
+    for(var c0 = 0; c0 < cnH.length; c0++){
+      if(!usedC[c0] && cnHPos[c0] === enHPos[e0]){
+        headZh[e0] = cnH[c0]; usedC[c0] = 1; break;
+      }
+    }
+  }
+  for(var k0 in headZhForced){ headZh[k0] = headZhForced[k0]; }
+
   /* 引号外逗号位置(用于句内拆分) */
   function commaPositions(z){
     var pos = [], inQ = false;
-    for(var i = 0; i < z.length; i++){
-      var ch = z.charAt(i);
+    for(var ci = 0; ci < z.length; ci++){
+      var ch = z.charAt(ci);
       if(ch === '"' || ch === '“' || ch === '「' || ch === '『'){
         if(ch === '"') inQ = !inQ; else inQ = true;
       } else if(ch === '”' || ch === '」' || ch === '』'){
         inQ = false;
-      } else if(!inQ && (ch === '，' || ch === ',')){ pos.push(i); }
+      } else if(!inQ && (ch === '，' || ch === ',')){ pos.push(ci); }
     }
     return pos;
   }
-  function pair(cn, en){                      // 段内配对: 先调平句数, 再一一对应(绝不重复)
+  /* 段内配对: 先调平句数(中文多→合并相邻短句; 英文多→逗号拆分), 再一一对应 */
+  function makePairs(cn, en){
+    var out = [];
     var es = storyEnSents(en), zs = storyZhSents(cn);
-    if(!es.length) return;
-    if(!zs.length){                           // 无中文: 句子直接入库, 中文留空
-      es.forEach(function(e){ items.push({word:'', zh:'', sent: e, sentZh: '', words: []}); });
-      return;
+    if(!es.length) return out;
+    if(!zs.length){
+      es.forEach(function(e){ out.push({word:'', zh:'', sent: e, sentZh: '', words: []}); });
+      return out;
     }
-    // 英文累计占比 = 对齐目标
     var eL = es.map(function(s){ return s.split(/\s+/).length; });
     var eT = eL.reduce(function(a,b){ return a+b; }, 0) || 1;
     var eCum = [], acc = 0;
     for(var j = 0; j < es.length; j++){ acc += eL[j]; eCum.push(acc / eT); }
-    function zerr(arr){                       // 模拟序列与英文占比的贴合误差
+    function zerr(arr){
       var tot = arr.reduce(function(a,b){ return a + b.length; }, 0) || 1;
       var c = [], a2 = 0, e = 0;
-      for(var i = 0; i < arr.length; i++){ a2 += arr[i].length; c.push(a2 / tot); }
-      for(var j2 = 0; j2 < Math.min(c.length, eCum.length); j2++){ e += Math.abs(c[j2] - eCum[j2]); }
+      for(var zi = 0; zi < arr.length; zi++){ a2 += arr[zi].length; c.push(a2 / tot); }
+      for(var zj = 0; zj < Math.min(c.length, eCum.length); zj++){ e += Math.abs(c[zj] - eCum[zj]); }
       return e;
     }
     var guard = 0;
-    while(zs.length > es.length && guard++ < 80){       // 中文偏多: 合并一对位置最优的相邻句
+    while(zs.length > es.length && guard++ < 80){
       var best = -1, be = Infinity;
-      for(var i = 0; i < zs.length - 1; i++){
-        var sim = zs.slice(0, i).concat([zs[i] + zs[i + 1]], zs.slice(i + 2));
+      for(var qi = 0; qi < zs.length - 1; qi++){
+        var sim = zs.slice(0, qi).concat([zs[qi] + zs[qi + 1]], zs.slice(qi + 2));
         var er = zerr(sim);
-        if(er < be){ be = er; best = i; }
+        if(er < be){ be = er; best = qi; }
       }
       if(best < 0) break;
       zs.splice(best, 2, zs[best] + zs[best + 1]);
     }
     guard = 0;
-    while(zs.length < es.length && guard++ < 80){       // 英文偏多: 全局最优的单处逗号拆分
+    while(zs.length < es.length && guard++ < 80){
       var bb = null, be2 = Infinity;
       for(var q = 0; q < zs.length; q++){
         var pos = commaPositions(zs[q]);
-        for(var p = 0; p < pos.length; p++){
-          var cut = pos[p] + 1;
+        for(var p3 = 0; p3 < pos.length; p3++){
+          var cut = pos[p3] + 1;
           if(cut < 4 || zs[q].length - cut < 4) continue;
-          var sim = zs.slice(0, q).concat([zs[q].slice(0, cut), zs[q].slice(cut)], zs.slice(q + 1));
-          var er = zerr(sim);
-          if(er < be2){ be2 = er; bb = [q, sim]; }
+          var sim2 = zs.slice(0, q).concat([zs[q].slice(0, cut), zs[q].slice(cut)], zs.slice(q + 1));
+          var er2 = zerr(sim2);
+          if(er2 < be2){ be2 = er2; bb = [q, sim2]; }
         }
       }
-      if(!bb) break;                          // 全都拆不开: 走共享兜底
+      if(!bb) break;
       zs = bb[1];
     }
-    if(zs.length === es.length){              // 调平成功: 一一对应, 不重复不丢失
+    if(zs.length === es.length){
       for(var j4 = 0; j4 < es.length; j4++){
-        items.push({word:'', zh:'', sent: es[j4], sentZh: zs[j4], words: []});
+        out.push({word:'', zh:'', sent: es[j4], sentZh: zs[j4], words: []});
       }
-      return;
+      return out;
     }
-    // 极端兜底(中文全拆不开仍偏少): 按累计占比就近(可能少量共享)
     var zL = zs.map(function(s){ return s.length; });
     var zT = zL.reduce(function(a,b){ return a+b; }, 0) || 1;
     var zCum = [], a2b = 0;
@@ -741,18 +819,35 @@ function parseStoryText(raw){
     var k = 0;
     for(var j3 = 0; j3 < es.length; j3++){
       while(k < zs.length - 1 && Math.abs(zCum[k+1] - eCum[j3]) <= Math.abs(zCum[k] - eCum[j3])) k++;
-      items.push({word:'', zh:'', sent: es[j3], sentZh: zs[k], words: []});
+      out.push({word:'', zh:'', sent: es[j3], sentZh: zs[k], words: []});
     }
+    return out;
   }
-  if(cnParas.length && enParas.length){
-    var n = Math.min(cnParas.length, enParas.length);
-    for(var i = 0; i < n - 1; i++) pair(cnParas[i], enParas[i]);
-    // 最后一段吸收两侧剩余段落（中英段落数不等时不再重复配同一段）
-    pair(cnParas.slice(n - 1).join(''), enParas.slice(n - 1).join(' '));
-  } else if(enParas.length && !cnParas.length){
-    // 纯英文文本: 直接按句拆分, 中文留空待补
-    enParas.forEach(function(e){ pair('', e); });
+
+  /* 按原文顺序组装条目: 标题条目 + 内容配对条目交错 */
+  var n = Math.min(cnParas.length, enParas.length);
+  var tailPairs = null;
+  if(cnParas.length && enParas.length && n >= 1){
+    tailPairs = makePairs(cnParas.slice(n - 1).join(''), enParas.slice(n - 1).join(' '));
   }
+  var items = [], tailEmitted = false;
+  seq.forEach(function(s){
+    if(s.t === 'enH'){
+      items.push({word:'', zh:'', sent: enH[s.i], sentZh: headZh[s.i] || '', words: []});
+    }else if(s.t === 'mix'){
+      items = items.concat(mixedItems[s.i]);
+    }else if(s.t === 'en'){
+      if(!cnParas.length){
+        items = items.concat(makePairs('', enParas[s.i]));
+      }else if(s.i < n - 1){
+        items = items.concat(makePairs(cnParas[s.i], enParas[s.i]));
+      }else if(!tailEmitted && tailPairs){
+        tailEmitted = true;
+        items = items.concat(tailPairs);
+      }
+    }
+    /* cnH / cn: 其内容由英文侧配对承载, 不单独成条 */
+  });
   if(items.length < 3) return null;
   return {title: title, items: items};
 }
