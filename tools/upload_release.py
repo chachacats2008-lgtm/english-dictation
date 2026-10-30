@@ -57,7 +57,7 @@ def main():
     retry(del_old, label="删除旧资产")
 
     # 2) 上传(大文件, 单次长超时, 失败重试)
-    for attempt in range(3):
+    for attempt in range(10):
         try:
             print("上传第%d次..." % (attempt + 1), flush=True)
             st, body = api(
@@ -75,7 +75,7 @@ def main():
                 retry(del_old, tries=2, label="清理半成品")
             except Exception:
                 pass
-    raise RuntimeError("三次上传均失败")
+    raise RuntimeError("十次上传均失败")
 
 
 if __name__ == "__main__":

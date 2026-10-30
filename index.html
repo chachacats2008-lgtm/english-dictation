@@ -605,8 +605,14 @@ function enSentSplit(t, honorQuotes){
 function storyEnSents(t){
   t = t.replace(/\s+/g, ' ').trim();
   var r = enSentSplit(t, true);
-  if(!r.open) return r.list.filter(function(s){ return s.length > 1; });
-  return [t];                       // 引号未闭合: 整段保持一条, 保证配对不散
+  var list = r.open ? [t] : r.list;    // 引号未闭合: 整段一条(短文); 长文由下面阈值再拆
+  return list.filter(function(s){ return s.length > 1; })
+    .reduce(function(a, seg){          // 段落级长引语(整段引着多句): 忽略引号按句重切
+      if(seg.length > 220 || seg.split(' ').length > 38){
+        enSentSplit(seg, false).list.forEach(function(x){ if(x.length > 1 && /[A-Za-z0-9]/.test(x)) a.push(x); });
+      }else{ a.push(seg); }
+      return a;
+    }, []);
 }
 function zhSentSplit(t, honorQuotes){
   var out = [], cur = '', inQ = false;
@@ -628,8 +634,13 @@ function zhSentSplit(t, honorQuotes){
 
 function storyZhSents(t){
   var r = zhSentSplit(t, true);
-  if(!r.open) return r.list.filter(Boolean);
-  return [t];                       // 引号未闭合: 整段保持一条
+  var list = r.open ? [t] : r.list;    // 引号未闭合: 整段一条(短文); 长文由下面阈值再拆
+  return list.filter(Boolean).reduce(function(a, seg){   // 段落级长引语: 忽略引号按句重切
+    if(seg.length > 80){
+      zhSentSplit(seg, false).list.forEach(function(x){ if(/[\u3400-\u9fff]/.test(x)) a.push(x); });
+    }else{ a.push(seg); }
+    return a;
+  }, []);
 }
 function parseStoryText(raw){
   if(!raw || raw.length < 40) return null;
@@ -730,6 +741,16 @@ function parseStoryText(raw){
         }
       });
       if(pairs.length){ seq.push({t:'mix', i: mixedSeq}); mixedItems[mixedSeq++] = pairs; cnCnt++; enCnt++; return; }
+      /* 整行英文+整行中文相邻(无空行): 拆成 en段+cn段 按位配对, 避免英文被吞进中文侧 */
+      var enLs = lines.filter(function(l){ return EN.test(l) && !CN.test(l); });
+      var zhLs = lines.filter(function(l){ return CN.test(l) && !EN.test(l); });
+      if(enLs.length && zhLs.length && enLs.length + zhLs.length === lines.length){
+        seq.push({t:'en', i: enParas.length});
+        enParas.push(enLs.join(' '));
+        cnParas.push(zhLs.join(''));
+        cnCnt++; enCnt++;
+        return;
+      }
     }
     if(hasCn){ seq.push({t:'cn', i: cnParas.length}); cnParas.push(lines.join('')); cnCnt++; }
     else if(hasEn){ seq.push({t:'en', i: enParas.length}); enParas.push(lines.join(' ')); enCnt++; }
@@ -795,6 +816,12 @@ function parseStoryText(raw){
       var bb = null, be2 = Infinity;
       for(var q = 0; q < zs.length; q++){
         var pos = commaPositions(zs[q]);
+        if(!pos.length){                     // 引号外无逗号 → 引号内逗号也可拆(原串位置)
+          for(var ci2 = 0; ci2 < zs[q].length; ci2++){
+            var cch = zs[q].charAt(ci2);
+            if(cch === '，' || cch === ',') pos.push(ci2);
+          }
+        }
         for(var p3 = 0; p3 < pos.length; p3++){
           var cut = pos[p3] + 1;
           if(cut < 4 || zs[q].length - cut < 4) continue;
