@@ -618,6 +618,44 @@ def load_all_lessons():
     return lessons
 
 
+WRONGBOOK_ID = "wrongbook"
+
+
+def regenerate_wrongbook():
+    """汇总所有课程里标记的错词(item.wrong), 生成/删除 错词本 课程(data/wrongbook.json)。
+    同一个词在多处标错只保留一条(取最新的句子上下文)。"""
+    words = {}
+    for lesson in load_all_lessons():
+        if lesson.get("id") == WRONGBOOK_ID:
+            continue
+        for it in lesson.get("items") or []:
+            for w in (it.get("wrong") or [])[:20]:
+                w = str(w).strip()[:40]
+                if not w:
+                    continue
+                words[w.lower()] = {
+                    "word": w,
+                    "zh": str(it.get("zh") or "").strip()[:120],
+                    "sent": str(it.get("sent") or it.get("word") or "").strip()[:400],
+                    "sentZh": str(it.get("sentZh") or "").strip()[:200],
+                    "words": [],
+                }
+    fp = os.path.join(DATA_DIR, WRONGBOOK_ID + ".json")
+    if words:
+        lesson = {
+            "id": WRONGBOOK_ID,
+            "title": "错词本",
+            "kind": "vocab",
+            "items": list(words.values()),
+            "created": int(time.time()),
+        }
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(lesson, f, ensure_ascii=False, indent=1)
+    elif os.path.exists(fp):
+        os.remove(fp)
+    return len(words)
+
+
 def lan_ip():
     import socket
     try:
@@ -1154,6 +1192,39 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad request"})
             return
 
+        if parsed.path == "/api/lessons/wrong":
+            lid = str(body.get("id") or "").strip()
+            try:
+                idx = int(body.get("index"))
+            except (TypeError, ValueError):
+                idx = -1
+            ws = []
+            for w in (body.get("words") or [])[:20]:
+                w = str(w).strip()[:40]
+                if w:
+                    ws.append(w)
+            if re.fullmatch(r"[A-Za-z0-9_\-]{1,64}", lid or "") and idx >= 0:
+                fp = os.path.join(DATA_DIR, lid + ".json")
+                if os.path.exists(fp):
+                    try:
+                        with open(fp, encoding="utf-8") as f:
+                            lesson = json.load(f)
+                        if idx < len(lesson.get("items") or []):
+                            if ws:
+                                lesson["items"][idx]["wrong"] = ws
+                            else:
+                                lesson["items"][idx].pop("wrong", None)
+                            with open(fp, "w", encoding="utf-8") as f:
+                                json.dump(lesson, f, ensure_ascii=False, indent=1)
+                            count = regenerate_wrongbook()
+                            self._json(200, {"ok": True, "count": count})
+                            return
+                    except Exception as e:
+                        self._json(500, {"error": str(e)})
+                        return
+            self._json(400, {"error": "bad request"})
+            return
+
         if parsed.path == "/api/lessons/save":
             title = str(body.get("title") or "").strip()[:60] or "未命名词库"
             kind = str(body.get("kind") or "").strip()
@@ -1177,6 +1248,14 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 if it.get("flag"):
                     entry["flag"] = 1
+                if it.get("wrong"):
+                    ws2 = []
+                    for w in (it.get("wrong") or [])[:20]:
+                        w = str(w).strip()[:40]
+                        if w:
+                            ws2.append(w)
+                    if ws2:
+                        entry["wrong"] = ws2
                 items.append(entry)
             items = [it for it in items if it["word"] or it["sent"]]
             if not items:
@@ -1202,6 +1281,8 @@ class Handler(BaseHTTPRequestHandler):
             with open(os.path.join(DATA_DIR, lid + ".json"), "w", encoding="utf-8") as f:
                 json.dump(lesson, f, ensure_ascii=False, indent=1)
             print("[lesson] saved id=%s title=%s items=%d" % (lid, title, len(items)))
+            if lid != WRONGBOOK_ID:
+                regenerate_wrongbook()
             # 自动后台预热语音（用默认引擎/音色/常用慢速）
             try:
                 engine, voice = ("kokoro", "af_heart") if kokoro_available() else ("edge", "en-US-AriaNeural")
@@ -1270,6 +1351,22 @@ class Handler(BaseHTTPRequestHandler):
                 if os.path.exists(p):
                     os.remove(p)
                     print("[lesson] deleted id=%s" % lid)
+                    if lid == WRONGBOOK_ID:
+                        # 删除错词本 = 清空所有课程的错词标记(否则下次标记又会重建)
+                        for lesson in load_all_lessons():
+                            dirty = False
+                            for it in lesson.get("items") or []:
+                                if it.pop("wrong", None) is not None:
+                                    dirty = True
+                            if dirty and lesson.get("id") != WRONGBOOK_ID:
+                                fp2 = os.path.join(DATA_DIR, lesson["id"] + ".json")
+                                try:
+                                    with open(fp2, "w", encoding="utf-8") as f:
+                                        json.dump(lesson, f, ensure_ascii=False, indent=1)
+                                except Exception as e:
+                                    print("[wrongbook] clear %s error %s" % (lesson.get("id"), e))
+                    else:
+                        regenerate_wrongbook()
             self._json(200, {"ok": True})
             return
 
@@ -1298,6 +1395,7 @@ def self_diag():
 
 def main():
     seed_if_empty()
+    regenerate_wrongbook()
     _load_warm_queue()
     threading.Thread(target=self_diag, daemon=True).start()
     # 后台预加载本地模型，首次请求更快

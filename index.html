@@ -62,6 +62,10 @@ select:focus,input:focus,textarea:focus{outline:2px solid #c7d2fe}
 .srow.flagrow{background:#fef2f2;border-color:#fca5a5}
 .wplay.flagon{background:#dc2626;color:#fff}
 #btnFlag.flagon{background:#dc2626;color:#fff;border-color:#dc2626}
+/* 句中单词标记错词 */
+.wtok{cursor:pointer;border-radius:4px;padding:0 1px;border-bottom:2px dotted #cbd5e1}
+.wtok:hover{background:#fef3c7;border-bottom-color:#f59e0b}
+.wtok.wrong{background:#fee2e2;color:#b91c1c;border-bottom:2px solid #dc2626}
 .srow .wnum{width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4338ca;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:none;margin-top:2px}
 .srow .smain{flex:1;min-width:0}
 .srow .wline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -1335,7 +1339,10 @@ function deleteLesson(){
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: id })
-  }).then(function(){ toast('已删除'); loadLessons(); })
+  }).then(function(){
+    toast(id === 'wrongbook' ? '错词本已清空（各课程的错词标记已全部移除）' : '已删除');
+    loadLessons();
+  })
     .catch(function(){ toast('删除失败'); });
 }
 
@@ -1466,7 +1473,7 @@ function renderViewer(){
   $('#maskBar').hidden = false;
   $('#pageBar').hidden = false;
   $('#vTitle').textContent = cur.title + ' ';
-  $('#vCount').textContent = cur.items.length + (kind === 'sent' ? ' 句' : ' 词') + ' · 点 ▶ 试听';
+  renderViewerCount();
   var base = (view.page - 1) * settings.pageLen;
   var pageWordSeen = {};                 // 自动词页内去重: 主题词不在每行重复
   pageItems().forEach(function(it, li){
@@ -1483,8 +1490,9 @@ function renderViewer(){
       if(settings.mask === 'en' && senTxt){ wl.appendChild(mkMask(senTxt)); }
       else{
         var w = document.createElement('b'); w.className = 'w';
-        w.textContent = senTxt;
         w.style.fontSize = '14.5px'; w.style.fontWeight = '600';
+        if(cur && cur.id){ addWordTokens(w, senTxt, it); }   // 保存过的课程: 句中单词可点标记错词
+        else{ w.textContent = senTxt; }
         wl.appendChild(w);
       }
       if(it.sentZh){
@@ -1505,7 +1513,9 @@ function renderViewer(){
     }
     main.appendChild(wl);
     if(kind !== 'sent' && it.sent && it.word){
-      var s = document.createElement('div'); s.className = 'sline'; s.textContent = it.sent;
+      var s = document.createElement('div'); s.className = 'sline';
+      if(cur && cur.id){ addWordTokens(s, it.sent, it); }
+      else{ s.textContent = it.sent; }
       main.appendChild(s);
       if(it.sentZh){ var sz = document.createElement('div'); sz.className = 'szhline'; sz.textContent = it.sentZh; main.appendChild(sz); }
     }
@@ -1547,6 +1557,65 @@ function renderViewer(){
 }
 
 /* ============ 错句标注 ============ */
+/* ============ 句中标词: 点击句中单词标记/取消错词, 自动汇总成「错词本」课程 ============ */
+function coreWord(tok){
+  return tok.replace(/^[^A-Za-z0-9]+/, '').replace(/[^A-Za-z0-9]+$/, '');  // 去首尾标点(保留内部 ' 和 -)
+}
+function addWordTokens(el, text, it){
+  String(text || '').split(/(\s+)/).forEach(function(part){
+    if(!part) return;
+    if(/^\s+$/.test(part)){ el.appendChild(document.createTextNode(' ')); return; }
+    var core = coreWord(part);
+    if(!core){ el.appendChild(document.createTextNode(part)); return; }
+    var sp = document.createElement('span');
+    sp.className = 'wtok' + ((it.wrong || []).indexOf(core) >= 0 ? ' wrong' : '');
+    sp.textContent = part;
+    sp.title = '点击标记/取消错词';
+    sp.addEventListener('click', function(){ toggleWrong(it, core, sp); });
+    el.appendChild(sp);
+  });
+}
+function toggleWrong(it, w, sp){
+  if(!cur || !cur.id){ toast('词库尚未保存，请先保存'); return; }
+  var a = it.wrong || (it.wrong = []);
+  var ix = a.indexOf(w), added;
+  if(ix >= 0){ a.splice(ix, 1); added = false; }
+  else{ a.push(w); added = true; }
+  if(sp) sp.classList.toggle('wrong', added);
+  renderViewerCount();
+  fetch('/api/lessons/wrong', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: cur.id, index: cur.items.indexOf(it), words: a })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.ok){
+      if(added) toast('「' + w + '」已入错词本（共 ' + d.count + ' 词），可在课程下拉中选「错词本」听写');
+      refreshLessonOptions();
+    }
+  }).catch(function(){ toast('标记保存失败'); });
+}
+function renderViewerCount(){
+  if(!cur) return;
+  var n = 0;
+  cur.items.forEach(function(x){ n += (x.wrong || []).length; });
+  var kind = cur.kind || 'vocab';
+  $('#vCount').textContent = cur.items.length + (kind === 'sent' ? ' 句' : ' 词')
+    + (n ? ' · ⚑错词 ' + n : '') + ' · 点 ▶ 试听 · 点单词标错';
+}
+/* 无损刷新课程下拉(保持当前打开的课程和页面状态) */
+function refreshLessonOptions(){
+  api('/api/lessons').then(function(ls){
+    lessons = ls || [];
+    var sel = $('#lessonSel'), keep = sel.value;
+    sel.innerHTML = '';
+    lessons.forEach(function(L){
+      var o = document.createElement('option');
+      o.value = L.id;
+      o.textContent = L.title + '（' + L.items.length + (kindOfLesson(L) === 'sent' ? ' 句）' : ' 词）');
+      sel.appendChild(o);
+    });
+    if(keep && lessons.some(function(L){ return L.id === keep; })) sel.value = keep;
+  }).catch(function(){});
+}
 function toggleFlag(it){
   it.flag = it.flag ? 0 : 1;
   if(cur && cur.id){
@@ -1579,6 +1648,8 @@ function startEditing(makeNew){
     cur = { id: null, title: '', kind: 'vocab', items: [{ word: '', zh: '', sent: '', sentZh: '', words: [] }] };
   }else if(!cur){
     toast('请先点「新建」创建词库'); return;
+  }else if(cur.id === 'wrongbook'){
+    toast('错词本是自动汇总的：到原课程点单词可加/减错词；删除错词本=清空全部标记'); return;
   }
   if(!cur.kind) cur.kind = 'vocab';
   editing = true;
@@ -1679,11 +1750,15 @@ function saveLesson(){
   if(!cur) return;
   cur.title = $('#edTitle').value.trim() || '未命名词库';
   var items = cur.items.map(function(it){
-    return {
+    var o = {
       word: (it.word || '').trim(), zh: (it.zh || '').trim(),
       sent: (it.sent || '').trim(), sentZh: (it.sentZh || '').trim(),
       words: (it.words || []).map(function(w){ return String(w).trim(); }).filter(Boolean).slice(0, 10)
     };
+    if(it.flag) o.flag = 1;                                        // 编辑保存不丢错句/错词标记
+    var ws = (it.wrong || []).map(function(w){ return String(w).trim(); }).filter(Boolean).slice(0, 20);
+    if(ws.length) o.wrong = ws;
+    return o;
   }).filter(function(it){ return it.word || it.sent; });
   if(!items.length){ toast('至少需要一个词条'); return; }
   api('/api/lessons/save', {
